@@ -37,6 +37,22 @@ jobs:
       - name: Bundle production backend server (dist-server/server.mjs)
         run: npm run build:server
 
+      - name: Verify YOYA Pharmacy app icon (build/icon.ico)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/icon.ico") -or (Get-Item "build/icon.ico").Length -lt 1000) {
+            Write-Host "build/icon.ico missing in checkout; generating from SVG emblem..."
+            $svgPath = if (Test-Path "build/icon.svg") { "build/icon.svg" } elseif (Test-Path "public/favicon.svg") { "public/favicon.svg" } else { throw "No YOYA icon SVG found!" }
+            New-Item -ItemType Directory -Force -Path "build" | Out-Null
+            npm install --no-save --legacy-peer-deps @resvg/resvg-js png-to-ico
+            $svgPathJs = $svgPath -replace '\\', '/'
+            node -e "const fs=require('fs'),{Resvg}=require('@resvg/resvg-js'),pngToIco=require('png-to-ico'); (async()=>{ const svg=fs.readFileSync('$svgPathJs'); const png=new Resvg(svg,{fitTo:{mode:'width',value:512}}).render().asPng(); fs.writeFileSync('build/icon.png',png); const fn=typeof pngToIco==='function'?pngToIco:pngToIco.default; const buf=await fn(png); fs.writeFileSync('build/icon.ico',buf); })().catch(err=>{ console.error(err); process.exit(1); });"
+          }
+          if (-not (Test-Path "build/icon.ico") -or (Get-Item "build/icon.ico").Length -lt 1000) {
+            throw "Failed to prepare valid build/icon.ico"
+          }
+          Get-Item "build/icon.ico" | Select-Object Name, Length
+
       - name: Install Electron packager tools (CI only)
         run: npm install --no-save --legacy-peer-deps electron@35.1.5 electron-builder@26.0.12
 
