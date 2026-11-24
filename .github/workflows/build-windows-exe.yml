@@ -24,10 +24,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
 
       - name: Install project dependencies
-        run: npm ci || npm install
+        run: npm install --legacy-peer-deps
 
       - name: Type-check TypeScript
         run: npm run lint
@@ -39,7 +38,7 @@ jobs:
         run: npm run build:server
 
       - name: Install Electron packager tools (CI only)
-        run: npm install --no-save electron@35.1.5 electron-builder@26.0.12
+        run: npm install --no-save --legacy-peer-deps electron@35.1.5 electron-builder@26.0.12
 
       - name: Package Windows Installer & Portable .exe with YOYA logo
         run: npx electron-builder --win --publish never
