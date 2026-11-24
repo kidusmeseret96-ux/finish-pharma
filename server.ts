@@ -433,11 +433,12 @@ async function pushTelemetryToCloudflare(db: PharmacyDatabase): Promise<void> {
 }
 
 function resolveAppSubdir(subdir: string): string {
+  const scriptDir = typeof __dirname === 'string' ? __dirname : '';
   const candidates = [
     process.env.YOYA_APP_ROOT?.trim() ? path.resolve(process.env.YOYA_APP_ROOT.trim(), subdir) : '',
     path.resolve(process.cwd(), subdir),
-    typeof import.meta.dirname === 'string' ? path.resolve(import.meta.dirname, subdir) : '',
-    typeof import.meta.dirname === 'string' ? path.resolve(import.meta.dirname, '..', subdir) : '',
+    scriptDir ? path.resolve(scriptDir, subdir) : '',
+    scriptDir ? path.resolve(scriptDir, '..', subdir) : '',
   ].filter(Boolean);
   for (const dir of candidates) {
     if (fs.existsSync(dir)) return dir;
@@ -2975,8 +2976,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`YOYA Pharmacy server running on http://0.0.0.0:${PORT}`);
+  const listenHost = process.env.YOYA_DESKTOP_APP === '1' ? '127.0.0.1' : '0.0.0.0';
+  app.listen(PORT, listenHost, () => {
+    console.log(`YOYA Pharmacy server running on http://${listenHost}:${PORT}`);
     if (isSupabaseConfigured()) {
       setInterval(() => {
         void pollSupabaseForRemoteUpdates();

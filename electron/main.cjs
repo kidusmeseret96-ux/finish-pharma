@@ -98,6 +98,8 @@ function stopServer() {
   }
 }
 
+let recentServerStderr = '';
+
 function createWindow(port) {
   const iconPath = path.join(__dirname, '..', 'build', 'icon.ico');
   mainWindow = new BrowserWindow({
@@ -124,7 +126,11 @@ function createWindow(port) {
     })
     .catch((err) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;background:#0A1114;color:#F0F6FF;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="max-width:480px;padding:28px;border-radius:20px;background:#111C22;border:1px solid #1F3037;"><h2 style="margin:0 0 8px;color:#34D399;">YOYA Pharmacy Failed to Start</h2><p style="margin:0;color:#94A3B8;font-size:14px;line-height:1.5;">${String(err.message || err)}</p></div></body></html>`;
+        const extra = recentServerStderr.trim() ? `\n\n${recentServerStderr.trim()}` : '';
+        const msg = `${String(err.message || err)}${extra}`.replace(/[&<>]/g, (c) =>
+          c === '&' ? '&amp;' : c === '<' ? '&lt;' : '&gt;'
+        );
+        const html = `<!doctype html><html><body style="font-family:system-ui,sans-serif;background:#0A1114;color:#F0F6FF;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="max-width:560px;padding:28px;border-radius:20px;background:#111C22;border:1px solid #1F3037;"><h2 style="margin:0 0 8px;color:#34D399;">YOYA Pharmacy Failed to Start</h2><pre style="margin:0;color:#94A3B8;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;">${msg}</pre></div></body></html>`;
         mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
       }
     });
@@ -158,15 +164,20 @@ app.whenReady().then(async () => {
   };
 
   const port = await pickServerPort(Number(userEnv.PORT || process.env.PORT || 3000));
-  const bundledServer = path.join(appRoot, 'dist-server', 'server.mjs');
+  const bundledCjs = path.join(appRoot, 'dist-server', 'server.cjs');
+  const bundledMjs = path.join(appRoot, 'dist-server', 'server.mjs');
   const logStream = fs.createWriteStream(path.join(logDir, 'server.log'), { flags: 'a' });
 
   let command = process.execPath;
-  let args = [bundledServer];
-  if (!fs.existsSync(bundledServer)) {
-    // Fallback for local Electron development before build:server is run
-    const tsxCli = require.resolve('tsx/cli');
-    args = [tsxCli, path.join(appRoot, 'server.ts')];
+  let args = [bundledCjs];
+  if (!fs.existsSync(bundledCjs)) {
+    if (fs.existsSync(bundledMjs)) {
+      args = [bundledMjs];
+    } else {
+      // Fallback for local Electron development before build:server is run
+      const tsxCli = require.resolve('tsx/cli');
+      args = [tsxCli, path.join(appRoot, 'server.ts')];
+    }
   }
 
   serverProcess = spawn(command, args, {
@@ -186,13 +197,19 @@ app.whenReady().then(async () => {
   });
 
   if (serverProcess.stdout) serverProcess.stdout.pipe(logStream);
-  if (serverProcess.stderr) serverProcess.stderr.pipe(logStream);
+  if (serverProcess.stderr) {
+    serverProcess.stderr.on('data', (chunk) => {
+      recentServerStderr = `${recentServerStderr}${chunk.toString('utf8')}`.slice(-1600);
+    });
+    serverProcess.stderr.pipe(logStream);
+  }
 
   serverProcess.on('exit', (code) => {
     if (!isQuitting && code && code !== 0) {
+      const detail = recentServerStderr.trim() ? `\n\nDetails:\n${recentServerStderr.trim().slice(-600)}` : '';
       dialog.showErrorBox(
         'YOYA Pharmacy Server Stopped',
-        `The local pharmacy engine exited unexpectedly (code ${code}). Check ${path.join(logDir, 'server.log')}.`
+        `The local pharmacy engine exited unexpectedly (code ${code}). Check ${path.join(logDir, 'server.log')}.${detail}`
       );
     }
   });

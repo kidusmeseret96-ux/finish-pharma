@@ -34,7 +34,7 @@ jobs:
       - name: Build frontend bundle (dist/)
         run: npm run build
 
-      - name: Bundle production backend server (dist-server/server.mjs)
+      - name: Bundle production backend server (dist-server/server.cjs)
         run: npm run build:server
 
       - name: Verify YOYA Pharmacy app icon (build/icon.ico)
