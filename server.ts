@@ -485,6 +485,7 @@ async function startServer() {
       licenseStatus: db.installation.licenseStatus,
       licenseReason: db.installation.licenseReason,
       featureLocks: normalizeFeatureLocks(db.installation.featureLocks),
+      desktopNonce: process.env.YOYA_DESKTOP_NONCE || undefined,
     });
   });
 
@@ -2977,7 +2978,7 @@ async function startServer() {
   }
 
   const listenHost = process.env.YOYA_DESKTOP_APP === '1' ? '127.0.0.1' : '0.0.0.0';
-  app.listen(PORT, listenHost, () => {
+  const httpServer = app.listen(PORT, listenHost, () => {
     console.log(`YOYA Pharmacy server running on http://${listenHost}:${PORT}`);
     if (isSupabaseConfigured()) {
       setInterval(() => {
@@ -2991,6 +2992,10 @@ async function startServer() {
         void pushTelemetryToCloudflare(loadDatabase());
       }, 60_000).unref();
     }
+  });
+  httpServer.on('error', (err) => {
+    console.error('Server listen failed:', err);
+    process.exit(1);
   });
 }
 

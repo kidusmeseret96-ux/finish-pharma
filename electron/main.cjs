@@ -1,4 +1,5 @@
 const { app, BrowserWindow, dialog } = require('electron');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
@@ -42,38 +43,56 @@ function loadOptionalEnvFile(filePath) {
   return loaded;
 }
 
-function isPortAvailable(port) {
-  return new Promise((resolve) => {
-    const tester = net.createServer();
-    tester.once('error', () => resolve(false));
-    tester.once('listening', () => {
-      tester.close(() => resolve(true));
-    });
-    tester.listen(port, '127.0.0.1');
-  });
-}
-
-async function pickServerPort(preferredPort = 3000) {
-  if (await isPortAvailable(preferredPort)) {
-    return preferredPort;
-  }
+function pickFreePort() {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
     srv.once('error', reject);
     srv.listen(0, '127.0.0.1', () => {
       const addr = srv.address();
-      const port = typeof addr === 'object' && addr ? addr.port : 3000;
-      srv.close(() => resolve(port));
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      srv.close(() => {
+        if (!port) {
+          reject(new Error('Could not allocate a free local port.'));
+          return;
+        }
+        resolve(port);
+      });
     });
   });
 }
 
-function waitForServer(url, retries = 80) {
+function waitForServer(url, expectedNonce, getEarlyExitError, retries = 80) {
   return new Promise((resolve, reject) => {
     const attempt = (left) => {
+      const earlyErr = getEarlyExitError();
+      if (earlyErr) {
+        reject(new Error(earlyErr));
+        return;
+      }
       const req = http.get(url, (res) => {
-        res.resume();
-        resolve();
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          if (body.length < 16384) body += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            try {
+              const parsed = JSON.parse(body);
+              if (parsed && parsed.desktopNonce === expectedNonce) {
+                resolve();
+                return;
+              }
+            } catch {
+              // Non-JSON response from a different process — keep retrying
+            }
+          }
+          if (left <= 0) {
+            reject(new Error('Another local service answered instead of YOYA Pharmacy.'));
+            return;
+          }
+          setTimeout(() => attempt(left - 1), 250);
+        });
       });
       req.on('error', () => {
         if (left <= 0) {
@@ -99,8 +118,9 @@ function stopServer() {
 }
 
 let recentServerStderr = '';
+let serverEarlyExitError = '';
 
-function createWindow(port) {
+function createWindow(port, launchNonce) {
   const iconPath = path.join(__dirname, '..', 'build', 'icon.ico');
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -118,7 +138,7 @@ function createWindow(port) {
   });
 
   const targetUrl = `http://127.0.0.1:${port}`;
-  waitForServer(`${targetUrl}/api/auth/status`)
+  waitForServer(`${targetUrl}/api/auth/status`, launchNonce, () => serverEarlyExitError)
     .then(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.loadURL(targetUrl);
@@ -163,7 +183,9 @@ app.whenReady().then(async () => {
     ...loadOptionalEnvFile(path.join(userDataDir, 'yoya.env')),
   };
 
-  const port = await pickServerPort(Number(userEnv.PORT || process.env.PORT || 3000));
+  // Always pick a fresh free OS-assigned port so another local app on port 3000 never conflicts
+  const port = await pickFreePort();
+  const launchNonce = crypto.randomBytes(12).toString('hex');
   const bundledCjs = path.join(appRoot, 'dist-server', 'server.cjs');
   const bundledMjs = path.join(appRoot, 'dist-server', 'server.mjs');
   const logStream = fs.createWriteStream(path.join(logDir, 'server.log'), { flags: 'a' });
@@ -187,6 +209,7 @@ app.whenReady().then(async () => {
       ...userEnv,
       ELECTRON_RUN_AS_NODE: '1',
       YOYA_DESKTOP_APP: '1',
+      YOYA_DESKTOP_NONCE: launchNonce,
       NODE_ENV: 'production',
       PORT: String(port),
       YOYA_DATA_DIR: dataDir,
@@ -206,15 +229,16 @@ app.whenReady().then(async () => {
 
   serverProcess.on('exit', (code) => {
     if (!isQuitting && code && code !== 0) {
+      serverEarlyExitError = `The local pharmacy engine exited unexpectedly (code ${code}).`;
       const detail = recentServerStderr.trim() ? `\n\nDetails:\n${recentServerStderr.trim().slice(-600)}` : '';
       dialog.showErrorBox(
         'YOYA Pharmacy Server Stopped',
-        `The local pharmacy engine exited unexpectedly (code ${code}). Check ${path.join(logDir, 'server.log')}.${detail}`
+        `${serverEarlyExitError} Check ${path.join(logDir, 'server.log')}.${detail}`
       );
     }
   });
 
-  createWindow(port);
+  createWindow(port, launchNonce);
 });
 }
 
