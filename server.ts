@@ -467,6 +467,14 @@ async function startServer() {
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '15mb' }));
 
+  // Global instant Supabase sync middleware for all /api/ requests
+  app.use('/api', async (_req, _res, next) => {
+    try {
+      await pollSupabaseForRemoteUpdates();
+    } catch {}
+    next();
+  });
+
   // Auth status
   app.get('/api/auth/status', async (req, res) => {
     const db = loadDatabase();
