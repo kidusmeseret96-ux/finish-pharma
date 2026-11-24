@@ -94,6 +94,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
+  testCloudSync: (url: string, key: string) =>
+    request<{ success: boolean; message: string }>('/api/cloud-sync/test', {
+      method: 'POST',
+      body: JSON.stringify({ url, key }),
+    }),
 
   getDrugKinds: () => request<DrugKind[]>('/api/drug-kinds'),
   createDrugKind: (payload: { label: string; unitLabel?: string; iconKey?: DrugKindIconKey }) =>

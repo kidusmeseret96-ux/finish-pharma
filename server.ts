@@ -21,6 +21,7 @@ import {
   buildPayrollStatuses,
   computeAttendanceSummary,
   computeMachineFingerprint,
+  forceSyncToSupabaseNow,
   getClinicNow,
   hydrateDatabaseFromSupabase,
   isSupabaseConfigured,
@@ -460,7 +461,15 @@ async function startServer() {
     (!startupDb.settings.publicPortalUrl || isLoopbackHost(startupDb.settings.publicPortalUrl))
   ) {
     startupDb.settings.publicPortalUrl = envPublicOrigin;
-    await saveDatabase(startupDb);
+    const startupHasData = Boolean(
+      startupDb.ownerPasswordHash ||
+        startupDb.staff.length > 0 ||
+        startupDb.drugs.length > 0 ||
+        startupDb.transactions.length > 0
+    );
+    if (startupHasData || !isSupabaseConfigured()) {
+      await saveDatabase(startupDb);
+    }
   }
 
   const app = express();
@@ -479,7 +488,13 @@ async function startServer() {
   app.get('/api/auth/status', async (req, res) => {
     const db = loadDatabase();
     const changed = recordClientTelemetrySignal(db, req);
-    if (changed) {
+    const hasData = Boolean(
+      db.ownerPasswordHash ||
+        db.staff.length > 0 ||
+        db.drugs.length > 0 ||
+        db.transactions.length > 0
+    );
+    if (changed && (hasData || !isSupabaseConfigured())) {
       await saveDatabase(db);
     }
     void pushTelemetryToCloudflare(db);
@@ -556,6 +571,8 @@ async function startServer() {
 
   // Unified Username + Password Sign-In (Owner, Manager, or Seller)
   app.post('/api/auth/login', async (req, res) => {
+    // Force poll absolute latest state from Supabase safely so accounts created in the .exe are instantly recognized online
+    await pollSupabaseForRemoteUpdates(true).catch(() => {});
     const db = loadDatabase();
     const changed = recordClientTelemetrySignal(db, req);
     const blocked = getBlockedLicenseMessage(db);
@@ -810,11 +827,76 @@ async function startServer() {
     res.json(db.settings);
   });
 
+  app.post('/api/cloud-sync/test', requireAuth, requireOwner, async (req: AuthedRequest, res) => {
+    const { url, key } = req.body ?? {};
+    if (!url || !key) {
+      return res.status(400).json({ error: 'URL and Key are required.' });
+    }
+    const cleanUrl = String(url).trim().replace(/\/+$/, '');
+    const cleanKey = String(key).trim();
+    try {
+      // 1. Test read table
+      const testRes = await fetch(`${cleanUrl}/rest/v1/yoya_kv_state?select=id&limit=1`, {
+        headers: {
+          apikey: cleanKey,
+          Authorization: `Bearer ${cleanKey}`,
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!testRes.ok) {
+        const text = await testRes.text();
+        return res.status(400).json({
+          error: `Supabase table access failed (HTTP ${testRes.status}): ${text}. Check table name 'yoya_kv_state' and RLS settings.`,
+        });
+      }
+
+      // 2. Perform live upsert with current database state
+      const db = loadDatabase();
+      const writtenAt = new Date().toISOString();
+      const writeRes = await fetch(`${cleanUrl}/rest/v1/yoya_kv_state?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          apikey: cleanKey,
+          Authorization: `Bearer ${cleanKey}`,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates,return=representation',
+        },
+        body: JSON.stringify({
+          id: 'primary_pharmacy_state',
+          payload: db,
+          updated_at: writtenAt,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!writeRes.ok) {
+        const text = await writeRes.text();
+        return res.status(400).json({
+          error: `Supabase write rejected (HTTP ${writeRes.status}): ${text}`,
+        });
+      }
+
+      // Update in-memory DB settings with verified working credentials
+      db.settings.supabaseUrl = cleanUrl;
+      db.settings.supabaseServiceRoleKey = cleanKey;
+      await saveDatabase(db);
+
+      res.json({
+        success: true,
+        message: 'Connected and synchronized 1 live pharmacy record into Supabase yoya_kv_state table!',
+      });
+    } catch (err) {
+      res.status(400).json({ error: `Connection error: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+
   app.put('/api/settings', requireAuth, requireOwner, async (req: AuthedRequest, res) => {
     const db = loadDatabase();
     const body = req.body ?? {};
     const prevDateOffset = db.settings.dateOffsetDays;
     const prevCalendarMode = db.settings.calendarMode;
+    const prevSupabaseUrl = db.settings.supabaseUrl || '';
+    const prevSupabaseKey = db.settings.supabaseServiceRoleKey || '';
 
     if (typeof body.clinicName === 'string' && body.clinicName.trim()) {
       db.settings.clinicName = body.clinicName.trim().slice(0, 100);
@@ -894,6 +976,24 @@ async function startServer() {
     });
 
     await saveDatabase(db);
+
+    const supabaseCredentialsChanged =
+      (db.settings.supabaseUrl || '') !== prevSupabaseUrl ||
+      (db.settings.supabaseServiceRoleKey || '') !== prevSupabaseKey;
+
+    if (
+      supabaseCredentialsChanged &&
+      db.settings.supabaseUrl &&
+      db.settings.supabaseServiceRoleKey
+    ) {
+      const syncCheck = await forceSyncToSupabaseNow(db);
+      if (!syncCheck.success) {
+        return res.status(400).json({
+          error: `Settings saved locally, but Supabase sync failed: ${syncCheck.error}`,
+        });
+      }
+    }
+
     res.json(db.settings);
   });
 
@@ -3032,11 +3132,11 @@ async function startServer() {
       fetch(selfPingUrl, { signal: AbortSignal.timeout(8000) }).catch(() => {});
     }, 4 * 60 * 1000).unref();
 
-    if (isSupabaseConfigured()) {
-      setInterval(() => {
+    setInterval(() => {
+      if (isSupabaseConfigured()) {
         void pollSupabaseForRemoteUpdates();
-      }, 5_000).unref();
-    }
+      }
+    }, 5_000).unref();
     if (process.env.VENDOR_CLOUDFLARE_URL) {
       const db = loadDatabase();
       void pushTelemetryToCloudflare(db);
