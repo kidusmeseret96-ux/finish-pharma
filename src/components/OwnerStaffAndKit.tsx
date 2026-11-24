@@ -9,6 +9,7 @@ import {
   Download,
   Edit3,
   Eye,
+  Globe,
   IdCard,
   KeyRound,
   Phone,
@@ -20,7 +21,7 @@ import {
   UserX,
   X,
 } from 'lucide-react';
-import { compressImageFile, downloadDataUrlOrAsset } from '../lib/api.ts';
+import { compressImageFile, downloadDataUrlOrAsset, resolvePortalOrigin } from '../lib/api.ts';
 import { getTranslator } from '../lib/i18n.ts';
 import {
   ETHIOPIAN_MONTHS,
@@ -35,6 +36,7 @@ import { CameraCaptureModal } from './CameraCaptureModal.tsx';
 
 interface OwnerStaffViewProps {
   staff: StaffUser[];
+  publicPortalUrl?: string;
   onCreateStaff: (payload: {
     role: 'manager' | 'seller';
     name: string;
@@ -74,6 +76,7 @@ interface OwnerStaffViewProps {
 
 export function OwnerStaffView({
   staff,
+  publicPortalUrl,
   onCreateStaff,
   onUpdateStaff,
   onDeleteStaff,
@@ -102,7 +105,8 @@ export function OwnerStaffView({
   const faydaFrontRef = useRef<HTMLInputElement | null>(null);
   const faydaBackRef = useRef<HTMLInputElement | null>(null);
 
-  const posUrl = typeof window !== 'undefined' ? `${window.location.origin}/` : '/';
+  const { origin: portalOrigin, isLocalOnly: portalIsLocalOnly } = resolvePortalOrigin(publicPortalUrl);
+  const posUrl = portalOrigin ? `${portalOrigin}/` : '/';
 
   function resetForm() {
     setEditingMember(null);
@@ -226,14 +230,27 @@ export function OwnerStaffView({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={copyLoginUrl}
-          className="apple-surface inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-semibold"
-        >
-          {copiedPosLink ? <Check className="w-4 h-4 text-[#0D6E52] dark:text-[#22C58B]" /> : <Copy className="w-4 h-4" />}
-          {copiedPosLink ? 'Copied Login URL' : 'Copy Staff Portal Link'}
-        </button>
+        <div className="flex flex-col items-start sm:items-end gap-1.5">
+          <button
+            type="button"
+            onClick={copyLoginUrl}
+            className="apple-surface inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-semibold"
+          >
+            {copiedPosLink ? <Check className="w-4 h-4 text-[#0D6E52] dark:text-[#22C58B]" /> : <Copy className="w-4 h-4" />}
+            {copiedPosLink ? 'Copied Login URL' : 'Copy Staff Portal Link'}
+          </button>
+          <span
+            className={`text-[11px] font-mono break-all ${
+              portalIsLocalOnly
+                ? 'text-amber-700 dark:text-amber-300'
+                : 'text-[#5B6470] dark:text-[#98A2AE]'
+            }`}
+          >
+            {portalIsLocalOnly
+              ? `Local URL (${posUrl}) — open your Render site once or set Public Staff Portal URL in Settings`
+              : posUrl}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -768,7 +785,9 @@ export function OwnerSettingsKit({
   const [alertSoundEnabled, setAlertSoundEnabled] = useState<boolean>(settings.alertSoundEnabled ?? true);
   const [calendarMode, setCalendarMode] = useState<CalendarMode>(settings.calendarMode || 'both');
   const [dateOffsetDays, setDateOffsetDays] = useState<number>(settings.dateOffsetDays || 0);
+  const [publicPortalUrl, setPublicPortalUrl] = useState(settings.publicPortalUrl || '');
   const [savedBanner, setSavedBanner] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newOwnerUsername, setNewOwnerUsername] = useState(currentUsername);
@@ -788,6 +807,7 @@ export function OwnerSettingsKit({
     setAlertSoundEnabled(settings.alertSoundEnabled ?? true);
     setCalendarMode(settings.calendarMode || 'both');
     setDateOffsetDays(settings.dateOffsetDays || 0);
+    setPublicPortalUrl(settings.publicPortalUrl || '');
   }, [settings]);
 
   useEffect(() => {
@@ -830,20 +850,27 @@ export function OwnerSettingsKit({
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    await onSaveSettings({
-      clinicName,
-      ownerName,
-      licenseNumber,
-      currencySymbol,
-      taxRatePercent: Number(taxRatePercent),
-      receiptFooter,
-      alertSoundEnabled,
-      calendarMode,
-      dateOffsetDays,
-    });
-    soundEngine.playSaleComplete();
-    setSavedBanner(true);
-    setTimeout(() => setSavedBanner(false), 2500);
+    setSettingsError(null);
+    try {
+      await onSaveSettings({
+        clinicName,
+        ownerName,
+        licenseNumber,
+        currencySymbol,
+        taxRatePercent: Number(taxRatePercent),
+        receiptFooter,
+        alertSoundEnabled,
+        calendarMode,
+        dateOffsetDays,
+        publicPortalUrl: publicPortalUrl.trim(),
+      });
+      soundEngine.playSaleComplete();
+      setSavedBanner(true);
+      setTimeout(() => setSavedBanner(false), 2500);
+    } catch (err) {
+      soundEngine.playWarning();
+      setSettingsError(err instanceof Error ? err.message : 'Failed to save settings.');
+    }
   }
 
   async function handleCredentialSubmit(e: React.FormEvent) {
@@ -1074,6 +1101,23 @@ export function OwnerSettingsKit({
           </div>
 
           <div>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-[#5B6470] dark:text-[#98A2AE] mb-1.5">
+              <Globe className="w-3.5 h-3.5 text-[#0D6E52] dark:text-[#22C58B]" />
+              Public Staff Portal URL (Used for Staff Links & QR Posters)
+            </label>
+            <input
+              type="text"
+              value={publicPortalUrl}
+              onChange={(e) => setPublicPortalUrl(e.target.value)}
+              placeholder="https://your-pharmacy.onrender.com"
+              className="w-full px-3.5 py-2 rounded-xl apple-inset text-sm font-mono"
+            />
+            <p className="text-[11px] text-[#5B6470] dark:text-[#98A2AE] mt-1">
+              Auto-filled from your live web deployment. Inside the Windows desktop app, Copy Staff Portal Link and Attendance QR posters automatically encode this address.
+            </p>
+          </div>
+
+          <div>
             <label className="block text-xs font-medium text-[#5B6470] dark:text-[#98A2AE] mb-1.5">
               Printed Receipt Footer Message
             </label>
@@ -1097,6 +1141,12 @@ export function OwnerSettingsKit({
               className="w-4 h-4 accent-[#0D6E52]"
             />
           </label>
+
+          {settingsError && (
+            <div className="p-3 rounded-2xl border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-xs text-red-700 dark:text-red-300">
+              {settingsError}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
             {savedBanner ? (

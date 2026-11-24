@@ -69,6 +69,36 @@ let schemaEnsured = false;
 
 async function ensureExtendedSchema(db: D1Database): Promise<void> {
   if (schemaEnsured) return;
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS vendor_installations (
+        installation_id TEXT PRIMARY KEY,
+        clinic_name TEXT NOT NULL,
+        owner_name TEXT NOT NULL,
+        owner_claimed INTEGER NOT NULL DEFAULT 0,
+        total_accounts_created INTEGER NOT NULL DEFAULT 0,
+        total_workers INTEGER NOT NULL DEFAULT 0,
+        active_workers INTEGER NOT NULL DEFAULT 0,
+        managers_count INTEGER NOT NULL DEFAULT 0,
+        sellers_count INTEGER NOT NULL DEFAULT 0,
+        drugs_count INTEGER NOT NULL DEFAULT 0,
+        transactions_count INTEGER NOT NULL DEFAULT 0,
+        seen_origins_json TEXT NOT NULL DEFAULT '[]',
+        seen_hosts_json TEXT NOT NULL DEFAULT '[]',
+        machine_fingerprints_json TEXT NOT NULL DEFAULT '[]',
+        ip_hashes_json TEXT NOT NULL DEFAULT '[]',
+        sharing_suspected INTEGER NOT NULL DEFAULT 0,
+        sharing_reasons_json TEXT NOT NULL DEFAULT '[]',
+        accounts_json TEXT NOT NULL DEFAULT '[]',
+        blocked_accounts_json TEXT NOT NULL DEFAULT '[]',
+        feature_locks_json TEXT NOT NULL DEFAULT '{}',
+        license_status TEXT NOT NULL DEFAULT 'active',
+        license_reason TEXT NOT NULL DEFAULT '',
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+      )`
+    )
+    .run();
   const alterStatements = [
     "ALTER TABLE vendor_installations ADD COLUMN accounts_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE vendor_installations ADD COLUMN blocked_accounts_json TEXT NOT NULL DEFAULT '[]'",
@@ -295,6 +325,7 @@ function renderDashboardHtml(): string {
         </div>
       </div>
 
+      <div id="dashError" class="alert" style="display:none;margin-bottom:14px;"></div>
       <div id="kpis" class="kpis"></div>
       <div id="installList" class="list"></div>
     </div>
@@ -306,6 +337,7 @@ function renderDashboardHtml(): string {
     const dashView = document.getElementById('dashView');
     const loginForm = document.getElementById('loginForm');
     const loginError = document.getElementById('loginError');
+    const dashError = document.getElementById('dashError');
     const kpisEl = document.getElementById('kpis');
     const listEl = document.getElementById('installList');
 
@@ -315,12 +347,14 @@ function renderDashboardHtml(): string {
       if (token) headers.set('Authorization', 'Bearer ' + token);
       const res = await fetch(path, { ...opts, headers });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Request failed');
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
       return data;
     }
 
     async function loadData() {
-      const { installations } = await api('/api/vendor/installations');
+      dashError.style.display = 'none';
+      try {
+        const { installations } = await api('/api/vendor/installations');
       const totalAccounts = installations.reduce((s, x) => s + x.totalAccountsCreated, 0);
       const totalWorkers = installations.reduce((s, x) => s + x.totalWorkers, 0);
       const sharingAlerts = installations.filter((x) => x.sharingSuspected).length;
@@ -401,6 +435,10 @@ function renderDashboardHtml(): string {
           '</div>' +
         '</div>';
       }).join('');
+      } catch (err) {
+        dashError.textContent = 'Dashboard error: ' + (err && err.message ? err.message : String(err));
+        dashError.style.display = 'block';
+      }
     }
 
     function escapeHtml(str) {

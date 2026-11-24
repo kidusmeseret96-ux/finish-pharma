@@ -14,7 +14,7 @@ import {
   ShoppingBag,
   UserCheck,
 } from 'lucide-react';
-import { downloadCanvasPng } from '../lib/api.ts';
+import { downloadCanvasPng, resolvePortalOrigin } from '../lib/api.ts';
 import { formatClinicDate, getEffectiveNow } from '../lib/ethiopianCalendar.ts';
 import { getTranslator } from '../lib/i18n.ts';
 import { soundEngine } from '../lib/soundEngine.ts';
@@ -54,7 +54,10 @@ export function AttendanceQrView({
   const [clockInDataUrl, setClockInDataUrl] = useState<string>('');
   const [clockOutDataUrl, setClockOutDataUrl] = useState<string>('');
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const { origin, isLocalOnly } = useMemo(
+    () => resolvePortalOrigin(settings.publicPortalUrl),
+    [settings.publicPortalUrl]
+  );
   const clockInUrl = qrConfig ? `${origin}/?attendance=clock_in&qr=${qrConfig.clockInToken}` : '';
   const clockOutUrl = qrConfig ? `${origin}/?attendance=clock_out&qr=${qrConfig.clockOutToken}` : '';
 
@@ -145,6 +148,19 @@ export function AttendanceQrView({
           Print Both QR Posters
         </MagneticButton>
       </div>
+
+      {isLocalOnly && (
+        <div className="no-print p-4 rounded-2xl border border-amber-300 dark:border-amber-800/70 bg-amber-50 dark:bg-amber-950/30 flex items-start gap-3 text-xs text-amber-900 dark:text-amber-200">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="font-bold">Local PC Address Detected ({origin || '127.0.0.1'})</p>
+            <p className="mt-0.5 opacity-90">
+              Workers’ phones cannot scan a localhost QR code. Open your live Render web link once (it syncs automatically) or enter it in{' '}
+              <span className="font-semibold">Settings → Public Staff Portal URL</span> so these QR posters encode your public web address.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Dual Printable QR Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

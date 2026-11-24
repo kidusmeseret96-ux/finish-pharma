@@ -527,3 +527,48 @@ export function downloadCanvasPng(canvas: HTMLCanvasElement, filename: string): 
   void downloadDataUrlOrAsset(canvas.toDataURL('image/png'), filename);
 }
 
+export function isLoopbackOrigin(urlOrOrigin: string): boolean {
+  const lower = urlOrOrigin.toLowerCase();
+  return (
+    lower.includes('localhost') ||
+    lower.includes('127.0.0.1') ||
+    lower.includes('0.0.0.0') ||
+    lower.includes('::1')
+  );
+}
+
+export function resolvePortalOrigin(configuredPublicUrl?: string): {
+  origin: string;
+  isLocalOnly: boolean;
+  source: 'configured' | 'browser';
+} {
+  let configuredOrigin = '';
+  if (typeof configuredPublicUrl === 'string' && configuredPublicUrl.trim()) {
+    try {
+      const withScheme = /^https?:\/\//i.test(configuredPublicUrl.trim())
+        ? configuredPublicUrl.trim()
+        : `https://${configuredPublicUrl.trim()}`;
+      const parsed = new URL(withScheme);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        configuredOrigin = parsed.origin;
+      }
+    } catch {
+      configuredOrigin = '';
+    }
+  }
+
+  const browserOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+
+  if (configuredOrigin && !isLoopbackOrigin(configuredOrigin)) {
+    return { origin: configuredOrigin, isLocalOnly: false, source: 'configured' };
+  }
+  if (browserOrigin && !isLoopbackOrigin(browserOrigin)) {
+    return { origin: browserOrigin, isLocalOnly: false, source: 'browser' };
+  }
+  const fallback = configuredOrigin || browserOrigin;
+  return {
+    origin: fallback,
+    isLocalOnly: !fallback || isLoopbackOrigin(fallback),
+    source: configuredOrigin ? 'configured' : 'browser',
+  };
+}

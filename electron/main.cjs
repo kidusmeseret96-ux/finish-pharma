@@ -20,7 +20,7 @@ function loadOptionalEnvFile(filePath) {
   const loaded = {};
   if (!fs.existsSync(filePath)) return loaded;
   try {
-    const raw = fs.readFileSync(filePath, 'utf8');
+    const raw = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '');
     for (const line of raw.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
@@ -141,6 +141,7 @@ app.on('second-instance', () => {
   }
 });
 
+if (gotLock) {
 app.whenReady().then(async () => {
   const appRoot = path.join(__dirname, '..');
   const userDataDir = app.getPath('userData');
@@ -198,6 +199,7 @@ app.whenReady().then(async () => {
 
   createWindow(port);
 });
+}
 
 app.on('before-quit', () => {
   isQuitting = true;

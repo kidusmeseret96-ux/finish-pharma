@@ -401,6 +401,7 @@ export interface ClinicSettings {
   alertSoundEnabled: boolean;
   calendarMode: CalendarMode;
   dateOffsetDays: number;
+  publicPortalUrl?: string;
 }
 
 export interface OverviewAnalytics {

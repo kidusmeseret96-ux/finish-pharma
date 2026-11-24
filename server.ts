@@ -137,6 +137,19 @@ function isLoopbackHost(hostOrOrigin: string): boolean {
   );
 }
 
+function normalizeHttpOrigin(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  try {
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(withScheme);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
 function recordClientTelemetrySignal(db: PharmacyDatabase, req: Request): boolean {
   let changed = false;
   const inst = db.installation;
@@ -164,6 +177,25 @@ function recordClientTelemetrySignal(db: PharmacyDatabase, req: Request): boolea
   if (rawHost && !inst.seenHosts.includes(rawHost)) {
     inst.seenHosts.push(rawHost);
     changed = true;
+  }
+
+  const protoHeader =
+    (typeof req.headers['x-forwarded-proto'] === 'string' && req.headers['x-forwarded-proto'].split(',')[0].trim()) ||
+    req.protocol ||
+    'https';
+  const publicOriginCandidate =
+    (originHeader && !isLoopbackHost(originHeader) ? normalizeHttpOrigin(originHeader) : null) ||
+    (rawHost && !isLoopbackHost(rawHost) ? normalizeHttpOrigin(`${protoHeader}://${rawHost}`) : null);
+
+  if (publicOriginCandidate && !isLoopbackHost(publicOriginCandidate)) {
+    if (!inst.primaryOrigin || isLoopbackHost(inst.primaryOrigin)) {
+      inst.primaryOrigin = publicOriginCandidate;
+      changed = true;
+    }
+    if (!db.settings.publicPortalUrl || isLoopbackHost(db.settings.publicPortalUrl)) {
+      db.settings.publicPortalUrl = publicOriginCandidate;
+      changed = true;
+    }
   }
 
   const rawIp =
@@ -355,9 +387,13 @@ async function pushTelemetryToCloudflare(db: PharmacyDatabase): Promise<void> {
       method: 'POST',
       headers,
       body: JSON.stringify(summary),
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.warn(`Cloudflare telemetry sync HTTP ${res.status}:`, errText.slice(0, 200));
+      return;
+    }
     const remoteState = (await res.json()) as {
       status?: LicenseStatus;
       reason?: string;
@@ -411,6 +447,20 @@ function resolveAppSubdir(subdir: string): string {
 
 async function startServer() {
   await hydrateDatabaseFromSupabase();
+
+  const startupDb = loadDatabase();
+  const envPublicOrigin =
+    normalizeHttpOrigin(process.env.PUBLIC_PORTAL_URL?.trim() || '') ||
+    normalizeHttpOrigin(process.env.RENDER_EXTERNAL_URL?.trim() || '') ||
+    normalizeHttpOrigin(startupDb.installation.primaryOrigin || '');
+  if (
+    envPublicOrigin &&
+    !isLoopbackHost(envPublicOrigin) &&
+    (!startupDb.settings.publicPortalUrl || isLoopbackHost(startupDb.settings.publicPortalUrl))
+  ) {
+    startupDb.settings.publicPortalUrl = envPublicOrigin;
+    await saveDatabase(startupDb);
+  }
 
   const app = express();
   app.set('trust proxy', 1);
@@ -766,6 +816,23 @@ async function startServer() {
     }
     if (body.dateOffsetDays !== undefined && Number.isFinite(Number(body.dateOffsetDays))) {
       db.settings.dateOffsetDays = Math.max(-3650, Math.min(3650, Math.round(Number(body.dateOffsetDays))));
+    }
+    if (body.publicPortalUrl !== undefined) {
+      if (typeof body.publicPortalUrl !== 'string') {
+        return res.status(400).json({ error: 'Public Staff Portal URL must be a string.' });
+      }
+      const trimmedUrl = body.publicPortalUrl.trim();
+      if (!trimmedUrl) {
+        db.settings.publicPortalUrl = '';
+      } else {
+        const normalizedUrl = normalizeHttpOrigin(trimmedUrl);
+        if (!normalizedUrl) {
+          return res.status(400).json({
+            error: 'Please enter a valid web address (e.g. https://your-pharmacy.onrender.com).',
+          });
+        }
+        db.settings.publicPortalUrl = normalizedUrl;
+      }
     }
 
     appendAuditLog(db, {

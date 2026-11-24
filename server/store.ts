@@ -227,6 +227,7 @@ function createInitialDatabase(): PharmacyDatabase {
       alertSoundEnabled: true,
       calendarMode: 'both',
       dateOffsetDays: 0,
+      publicPortalUrl: '',
     },
     drugKinds: [...DEFAULT_DRUG_KINDS],
     drugs: [],
@@ -284,6 +285,10 @@ function migrateDatabaseIfNeeded(raw: Partial<PharmacyDatabase>): PharmacyDataba
         raw.settings?.currencySymbol === '$' ? 'Br' : raw.settings?.currencySymbol || 'Br',
       calendarMode: raw.settings?.calendarMode || 'both',
       dateOffsetDays: Number(raw.settings?.dateOffsetDays ?? 0) || 0,
+      publicPortalUrl:
+        typeof raw.settings?.publicPortalUrl === 'string'
+          ? raw.settings.publicPortalUrl.trim().replace(/\/+$/, '')
+          : '',
     },
     drugKinds:
       Array.isArray(raw.drugKinds) && raw.drugKinds.length > 0

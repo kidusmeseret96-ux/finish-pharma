@@ -1481,6 +1481,7 @@ function PharmacyApp({
               {activeTab === 'staff' && user.role === 'owner' && (
                 <OwnerStaffView
                   staff={staff}
+                  publicPortalUrl={settings.publicPortalUrl}
                   onCreateStaff={handleCreateStaff}
                   onUpdateStaff={handleUpdateStaff}
                   onDeleteStaff={handleDeleteStaff}
