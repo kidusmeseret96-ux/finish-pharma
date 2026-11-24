@@ -23,7 +23,9 @@ import {
   computeMachineFingerprint,
   getClinicNow,
   hydrateDatabaseFromSupabase,
+  isSupabaseConfigured,
   loadDatabase,
+  pollSupabaseForRemoteUpdates,
   saveDatabase,
   syncAlertForDrug,
   verifyAuditChain,
@@ -189,8 +191,17 @@ function recordClientTelemetrySignal(db: PharmacyDatabase, req: Request): boolea
   if (publicHosts.length > 1) {
     reasons.push(`Multiple deployment hosts detected (${publicHosts.join(', ')})`);
   }
-  if (inst.seenFingerprints.length > 1) {
-    reasons.push(`Cloned data or multiple machines detected (${inst.seenFingerprints.length} machines)`);
+  const cloudCount = inst.seenFingerprints.filter((f) => f.startsWith('cloud:')).length;
+  const desktopCount = inst.seenFingerprints.filter((f) => f.startsWith('desktop:')).length;
+  const legacyCount = inst.seenFingerprints.filter((f) => !f.includes(':')).length;
+  if (cloudCount > 1) {
+    reasons.push(`Cloned cloud deployments detected (${cloudCount} servers)`);
+  }
+  if (desktopCount > 1) {
+    reasons.push(`App installed on multiple Windows PCs (${desktopCount} desktop PCs)`);
+  }
+  if (legacyCount > 1) {
+    reasons.push(`Cloned data or multiple machines detected (${legacyCount} machines)`);
   }
   if (inst.ipHashes.length > 10) {
     reasons.push(`High number of distinct networks (${inst.ipHashes.length} IPs)`);
@@ -2811,7 +2822,12 @@ async function startServer() {
     const pubHosts = seenHosts.filter((h) => !isLoopbackHost(h));
     if (pubOrigins.length > 1) reasons.push(`Multiple public web origins detected (${pubOrigins.length})`);
     if (pubHosts.length > 1) reasons.push(`Multiple deployment hosts detected (${pubHosts.join(', ')})`);
-    if (seenFingerprints.length > 1) reasons.push(`Multiple machines detected (${seenFingerprints.length})`);
+    const cloudCount = seenFingerprints.filter((f) => f.startsWith('cloud:')).length;
+    const desktopCount = seenFingerprints.filter((f) => f.startsWith('desktop:')).length;
+    const legacyCount = seenFingerprints.filter((f) => !f.includes(':')).length;
+    if (cloudCount > 1) reasons.push(`Cloned cloud deployments (${cloudCount} servers)`);
+    if (desktopCount > 1) reasons.push(`Multiple Windows desktop PCs (${desktopCount} PCs)`);
+    if (legacyCount > 1) reasons.push(`Multiple machines detected (${legacyCount})`);
     if (ipHashes.length > 10) reasons.push(`High distinct IP count (${ipHashes.length})`);
 
     const blockedAccountIds = existing?.blockedAccountIds ?? [];
@@ -2894,6 +2910,11 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`YOYA Pharmacy server running on http://0.0.0.0:${PORT}`);
+    if (isSupabaseConfigured()) {
+      setInterval(() => {
+        void pollSupabaseForRemoteUpdates();
+      }, 5_000).unref();
+    }
     if (process.env.VENDOR_CLOUDFLARE_URL) {
       const db = loadDatabase();
       void pushTelemetryToCloudflare(db);

@@ -306,8 +306,8 @@ function PharmacyApp({
   }, [user, isOnline, refreshAuthStatus]);
 
   const loadWorkspaceData = useCallback(
-    async (activeUser: AuthUser, activePeriod: 'today' | '7d' | '30d' | 'all') => {
-      setLoadingData(true);
+    async (activeUser: AuthUser, activePeriod: 'today' | '7d' | '30d' | 'all', silent = false) => {
+      if (!silent) setLoadingData(true);
       try {
         const [fetchedSettings, fetchedKinds, fetchedDrugs, fetchedTxns, fetchedAttendance] =
           await Promise.all([
@@ -436,6 +436,21 @@ function PharmacyApp({
       void loadWorkspaceData(user, period);
     }
   }, [user, period, loadWorkspaceData]);
+
+  useEffect(() => {
+    if (!user || !isOnline) return;
+    const onFocus = () => {
+      void loadWorkspaceData(user, period, true);
+    };
+    window.addEventListener('focus', onFocus);
+    const interval = setInterval(() => {
+      void loadWorkspaceData(user, period, true);
+    }, 15_000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
+  }, [user, period, isOnline, loadWorkspaceData]);
 
   const syncInProgressRef = useRef(false);
   const autoSyncRetryAfterRef = useRef(0);

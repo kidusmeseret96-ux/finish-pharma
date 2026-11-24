@@ -683,8 +683,17 @@ export default {
       const publicOrigins = seenOrigins.filter((o) => !isLoopback(o));
 
       const reasons: string[] = [];
-      if (machineFingerprints.length > 1) {
-        reasons.push(`Detected on ${machineFingerprints.length} separate server machines/containers`);
+      const cloudCount = machineFingerprints.filter((f) => f.startsWith('cloud:')).length;
+      const desktopCount = machineFingerprints.filter((f) => f.startsWith('desktop:')).length;
+      const legacyCount = machineFingerprints.filter((f) => !f.includes(':')).length;
+      if (cloudCount > 1) {
+        reasons.push(`Detected on ${cloudCount} separate cloud server instances`);
+      }
+      if (desktopCount > 1) {
+        reasons.push(`Detected on ${desktopCount} separate Windows desktop PCs`);
+      }
+      if (legacyCount > 1) {
+        reasons.push(`Detected on ${legacyCount} separate server machines/containers`);
       }
       if (publicHosts.length > 1) {
         reasons.push(`Accessed from ${publicHosts.length} different public host domains`);

@@ -185,10 +185,13 @@ export function computeMachineFingerprint(): string {
     process.env.RAILWAY_SERVICE_ID?.trim() ||
     process.env.K_SERVICE?.trim() ||
     (process.env.RENDER ? 'render-cloud' : '');
+  const isDesktop = process.env.YOYA_DESKTOP_APP === '1';
+  const prefix = cloudInstanceId ? 'cloud' : isDesktop ? 'desktop' : 'local';
   const raw = cloudInstanceId
     ? `cloud|${cloudInstanceId}|${os.platform()}|${os.arch()}`
-    : `${os.hostname()}|${os.platform()}|${os.arch()}|${DATA_DIR}`;
-  return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 16);
+    : `${prefix}|${os.hostname()}|${os.platform()}|${os.arch()}|${DATA_DIR}`;
+  const hash = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 16);
+  return `${prefix}:${hash}`;
 }
 
 function createInitialInstallationState(): InstallationTrackingState {
@@ -350,6 +353,9 @@ function migrateDatabaseIfNeeded(raw: Partial<PharmacyDatabase>): PharmacyDataba
   return db;
 }
 
+let lastSupabaseUpdatedAt: string | null = null;
+let activeSupabaseWrites = 0;
+
 function getSupabaseConfig(): { url: string; key: string } | null {
   const url = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '');
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
@@ -357,12 +363,16 @@ function getSupabaseConfig(): { url: string; key: string } | null {
   return { url, key };
 }
 
+export function isSupabaseConfigured(): boolean {
+  return getSupabaseConfig() !== null;
+}
+
 export async function hydrateDatabaseFromSupabase(): Promise<void> {
   const cfg = getSupabaseConfig();
   if (!cfg) return;
   try {
     const res = await fetch(
-      `${cfg.url}/rest/v1/yoya_kv_state?id=eq.primary_pharmacy_state&select=payload`,
+      `${cfg.url}/rest/v1/yoya_kv_state?id=eq.primary_pharmacy_state&select=payload,updated_at`,
       {
         headers: {
           apikey: cfg.key,
@@ -376,9 +386,10 @@ export async function hydrateDatabaseFromSupabase(): Promise<void> {
       console.warn(`Supabase startup hydration HTTP ${res.status}:`, errText.slice(0, 200));
       return;
     }
-    const rows = (await res.json()) as { payload?: Partial<PharmacyDatabase> }[];
+    const rows = (await res.json()) as { payload?: Partial<PharmacyDatabase>; updated_at?: string }[];
     if (Array.isArray(rows) && rows.length > 0 && rows[0]?.payload) {
       cachedDb = migrateDatabaseIfNeeded(rows[0].payload);
+      lastSupabaseUpdatedAt = typeof rows[0].updated_at === 'string' ? rows[0].updated_at : null;
       persistDatabaseSync(cachedDb);
       console.log('Hydrated YOYA Pharmacy state from Supabase PostgreSQL.');
     }
@@ -387,31 +398,88 @@ export async function hydrateDatabaseFromSupabase(): Promise<void> {
   }
 }
 
+export async function pollSupabaseForRemoteUpdates(): Promise<boolean> {
+  const cfg = getSupabaseConfig();
+  if (!cfg || activeSupabaseWrites > 0) return false;
+  try {
+    const checkRes = await fetch(
+      `${cfg.url}/rest/v1/yoya_kv_state?id=eq.primary_pharmacy_state&select=updated_at`,
+      {
+        headers: {
+          apikey: cfg.key,
+          Authorization: `Bearer ${cfg.key}`,
+        },
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    if (!checkRes.ok) return false;
+    const metaRows = (await checkRes.json()) as { updated_at?: string }[];
+    const remoteUpdatedAt = Array.isArray(metaRows) && metaRows[0]?.updated_at ? metaRows[0].updated_at : null;
+    if (!remoteUpdatedAt || remoteUpdatedAt === lastSupabaseUpdatedAt) {
+      return false;
+    }
+    if (lastSupabaseUpdatedAt && Date.parse(remoteUpdatedAt) <= Date.parse(lastSupabaseUpdatedAt)) {
+      return false;
+    }
+    if (activeSupabaseWrites > 0) return false;
+
+    const fullRes = await fetch(
+      `${cfg.url}/rest/v1/yoya_kv_state?id=eq.primary_pharmacy_state&select=payload,updated_at`,
+      {
+        headers: {
+          apikey: cfg.key,
+          Authorization: `Bearer ${cfg.key}`,
+        },
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    if (!fullRes.ok) return false;
+    const rows = (await fullRes.json()) as { payload?: Partial<PharmacyDatabase>; updated_at?: string }[];
+    if (Array.isArray(rows) && rows[0]?.payload && activeSupabaseWrites === 0) {
+      cachedDb = migrateDatabaseIfNeeded(rows[0].payload);
+      lastSupabaseUpdatedAt = typeof rows[0].updated_at === 'string' ? rows[0].updated_at : remoteUpdatedAt;
+      persistDatabaseSync(cachedDb);
+      return true;
+    }
+  } catch {
+    // Transient network drop — keep local cachedDb cleanly
+  }
+  return false;
+}
+
 async function syncDatabaseToSupabase(db: PharmacyDatabase): Promise<void> {
   const cfg = getSupabaseConfig();
   if (!cfg) return;
+  activeSupabaseWrites++;
   try {
+    const writtenAt = new Date().toISOString();
     const res = await fetch(`${cfg.url}/rest/v1/yoya_kv_state`, {
       method: 'POST',
       headers: {
         apikey: cfg.key,
         Authorization: `Bearer ${cfg.key}`,
         'Content-Type': 'application/json',
-        Prefer: 'resolution=merge-duplicates',
+        Prefer: 'resolution=merge-duplicates,return=representation',
       },
       body: JSON.stringify({
         id: 'primary_pharmacy_state',
         payload: db,
-        updated_at: new Date().toISOString(),
+        updated_at: writtenAt,
       }),
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.warn(`Supabase background sync HTTP ${res.status}:`, errText.slice(0, 200));
+    } else {
+      const savedRows = (await res.json().catch(() => [])) as { updated_at?: string }[];
+      lastSupabaseUpdatedAt =
+        Array.isArray(savedRows) && savedRows[0]?.updated_at ? savedRows[0].updated_at : writtenAt;
     }
   } catch (err) {
     console.warn('Supabase background sync warning:', err instanceof Error ? err.message : err);
+  } finally {
+    activeSupabaseWrites = Math.max(0, activeSupabaseWrites - 1);
   }
 }
 

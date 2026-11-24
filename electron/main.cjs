@@ -150,6 +150,7 @@ app.whenReady().then(async () => {
   fs.mkdirSync(logDir, { recursive: true });
 
   const userEnv = {
+    ...loadOptionalEnvFile(path.join(__dirname, 'runtime.env')),
     ...loadOptionalEnvFile(path.join(appRoot, '.env')),
     ...loadOptionalEnvFile(path.join(userDataDir, '.env')),
     ...loadOptionalEnvFile(path.join(userDataDir, 'yoya.env')),
@@ -173,6 +174,7 @@ app.whenReady().then(async () => {
       ...process.env,
       ...userEnv,
       ELECTRON_RUN_AS_NODE: '1',
+      YOYA_DESKTOP_APP: '1',
       NODE_ENV: 'production',
       PORT: String(port),
       YOYA_DATA_DIR: dataDir,

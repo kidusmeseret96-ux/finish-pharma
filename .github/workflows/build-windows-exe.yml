@@ -40,6 +40,27 @@ jobs:
       - name: Install Electron packager tools (CI only)
         run: npm install --no-save --legacy-peer-deps electron@35.1.5 electron-builder@26.0.12
 
+      - name: Embed Cloud Sync config from GitHub Secrets (if configured)
+        shell: pwsh
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          VENDOR_CLOUDFLARE_URL: ${{ secrets.VENDOR_CLOUDFLARE_URL }}
+          VENDOR_SYNC_SECRET: ${{ secrets.VENDOR_SYNC_SECRET }}
+        run: |
+          $lines = @()
+          foreach ($k in @('SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SESSION_SECRET','VENDOR_CLOUDFLARE_URL','VENDOR_SYNC_SECRET')) {
+            $v = [Environment]::GetEnvironmentVariable($k)
+            if ($v) { $lines += "$k=$v" }
+          }
+          if ($lines.Count -gt 0) {
+            Set-Content -Path "electron/runtime.env" -Value ($lines -join "`n") -Encoding UTF8
+            Write-Host "Embedded $($lines.Count) cloud sync variables into desktop build."
+          } else {
+            Write-Host "No GitHub Secrets configured; .exe will use local storage unless .env is placed in AppData."
+          }
+
       - name: Package Windows Installer & Portable .exe with YOYA logo
         run: npx electron-builder --win --publish never
 
