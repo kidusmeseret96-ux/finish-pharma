@@ -23,11 +23,6 @@ import {
 import { compressImageFile, downloadDataUrlOrAsset } from '../lib/api.ts';
 import { getTranslator } from '../lib/i18n.ts';
 import {
-  ELECTRON_MAIN_CJS,
-  RENDER_BLUEPRINT_YAML,
-  SUPABASE_SQL_SCHEMA,
-} from '../lib/deploymentTemplates.ts';
-import {
   ETHIOPIAN_MONTHS,
   ethiopianToGregorianIso,
   formatClinicDate,
@@ -887,30 +882,14 @@ export function OwnerSettingsKit({
     }
   }
 
-  function downloadFile(filename: string, content: string) {
-    soundEngine.playTap();
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      a.remove();
-      URL.revokeObjectURL(url);
-    }, 1000);
-  }
-
   return (
     <div className="space-y-6">
       <div>
         <h2 className="font-display text-2xl font-bold tracking-tight">
-          Pharmacy Settings, Ethiopian Calendar & Packaging Kit
+          Pharmacy Settings & Ethiopian Calendar
         </h2>
         <p className="text-sm text-[#5B6470] dark:text-[#98A2AE]">
-          Configure Ethiopian Calendar mode, clinic system date, Birr branding, and exportable deployment blueprints.
+          Configure Ethiopian Calendar mode, clinic system date, Birr branding, and owner account security.
         </p>
       </div>
 
@@ -1230,69 +1209,9 @@ export function OwnerSettingsKit({
             </form>
           )}
 
-          <div className="apple-surface rounded-[26px] p-4 sm:p-6 space-y-4">
-            <h3 className="font-display text-base font-bold">Commercial Packaging Kit (.exe + Supabase + Render)</h3>
-            <p className="text-xs text-[#5B6470] dark:text-[#98A2AE] leading-relaxed">
-              Download these production blueprints to ship a standalone Windows desktop installer (.exe) for the pharmacy owner while hosting the staff portal on Render connected to Supabase.
-            </p>
-
-            <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-4 rounded-2xl apple-inset">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">1. Supabase PostgreSQL Schema</p>
-                  <p className="text-xs text-[#5B6470] dark:text-[#98A2AE]">
-                    Tables for drugs, staff, transactions, items & automatic low-stock SQL trigger.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => downloadFile('supabase_schema.sql', SUPABASE_SQL_SCHEMA)}
-                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[42px] rounded-xl bg-[#0D6E52] dark:bg-[#22C58B] text-white dark:text-[#081310] text-xs font-semibold shrink-0 w-full sm:w-auto"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  .sql
-                </button>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-4 rounded-2xl apple-inset">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">2. Windows .exe Desktop Wrapper (Electron)</p>
-                  <p className="text-xs text-[#5B6470] dark:text-[#98A2AE]">
-                    Package with electron-builder --win nsis to hand the owner a native desktop app.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => downloadFile('electron-main.cjs', ELECTRON_MAIN_CJS)}
-                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[42px] rounded-xl bg-white dark:bg-[#13161B] border border-black/[0.06] dark:border-white/[0.08] text-xs font-semibold shrink-0 w-full sm:w-auto"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  .cjs
-                </button>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-4 rounded-2xl apple-inset">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold">3. Render Staff Portal Hosting Blueprint</p>
-                  <p className="text-xs text-[#5B6470] dark:text-[#98A2AE]">
-                    Deploy the web portal so pharmacy staff sign in from any counter browser or scan QR.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => downloadFile('render.yaml', RENDER_BLUEPRINT_YAML)}
-                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[42px] rounded-xl bg-white dark:bg-[#13161B] border border-black/[0.06] dark:border-white/[0.08] text-xs font-semibold shrink-0 w-full sm:w-auto"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  .yaml
-                </button>
-              </div>
-            </div>
-
-            <div className="p-3.5 rounded-2xl apple-inset flex items-center gap-2.5 text-xs text-[#5B6470] dark:text-[#98A2AE]">
-              <Phone className="w-4 h-4 text-[#0D6E52] dark:text-[#22C58B] shrink-0" />
-              <span className="font-medium">{t('supportHelp')}</span>
-            </div>
+          <div className="apple-surface rounded-[26px] p-4 sm:p-5 flex items-center gap-2.5 text-xs text-[#5B6470] dark:text-[#98A2AE]">
+            <Phone className="w-4 h-4 text-[#0D6E52] dark:text-[#22C58B] shrink-0" />
+            <span className="font-medium">{t('supportHelp')}</span>
           </div>
         </div>
       </div>

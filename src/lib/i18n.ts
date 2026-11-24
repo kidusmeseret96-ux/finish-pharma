@@ -29,7 +29,7 @@ const DICTIONARY = {
     staffUsers: 'Staff & Users',
     payroll: 'Payroll & Pay',
     operations: 'Finance & Audit',
-    settingsKit: 'Settings & Kit',
+    settingsKit: 'Settings',
     addMedicine: 'Add Medicine',
     addStock: 'Add Stock',
     addDrugKind: 'Add Drug Kind',
