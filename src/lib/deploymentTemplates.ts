@@ -10,6 +10,10 @@ create table if not exists public.yoya_kv_state (
   updated_at timestamptz not null default now()
 );
 
+grant usage on schema public to service_role;
+grant all privileges on table public.yoya_kv_state to service_role;
+alter table public.yoya_kv_state disable row level security;
+
 create table if not exists public.clinic_settings (
   id uuid primary key default gen_random_uuid(),
   clinic_name text not null default 'YOYA Pharmacy',

@@ -474,11 +474,15 @@ function PharmacyApp({
       let hasTransientFailure = false;
       try {
         for (const punch of queuedPunches) {
+          if (!punch.qrToken?.trim()) {
+            await offlineStore.removeQueuedPunch(punch.clientSyncId);
+            continue;
+          }
           try {
             await api.punchAttendance({
               type: punch.type,
-              qrToken: punch.qrToken,
-              source: punch.source,
+              qrToken: punch.qrToken.trim(),
+              source: 'qr_scan',
               clientSyncId: punch.clientSyncId,
               offlineCreatedAt: punch.offlineCreatedAt,
             });
@@ -755,14 +759,17 @@ function PharmacyApp({
 
   async function handlePunchAttendance(
     type: 'clock_in' | 'clock_out',
-    qrToken?: string
+    qrToken: string
   ) {
+    if (!qrToken.trim()) {
+      throw new Error('QR scan required. Please scan the pharmacy Clock-In or Clock-Out QR poster.');
+    }
     if (!navigator.onLine) {
       const offlinePunch: OfflineQueuedPunch = {
         clientSyncId: `punch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         type,
         qrToken,
-        source: qrToken ? 'qr_scan' : 'portal',
+        source: 'qr_scan',
         offlineCreatedAt: new Date().toISOString(),
       };
       await offlineStore.enqueuePunch(offlinePunch);
@@ -775,7 +782,7 @@ function PharmacyApp({
     const rec = await api.punchAttendance({
       type,
       qrToken,
-      source: qrToken ? 'qr_scan' : 'portal',
+      source: 'qr_scan',
     });
     soundEngine.playAddToCart();
     const statusLabel =
@@ -1527,9 +1534,6 @@ function PharmacyApp({
                   myPayments={myPayments}
                   settings={settings}
                   language={language}
-                  onPunch={async (type) => {
-                    await handlePunchAttendance(type);
-                  }}
                   onPunchQr={async (type, qrToken) => {
                     await handlePunchAttendance(type, qrToken);
                   }}

@@ -19,6 +19,7 @@ import {
 import {
   appendAuditLog,
   buildPayrollStatuses,
+  buildSupabaseHeaders,
   computeAttendanceSummary,
   computeMachineFingerprint,
   forceSyncToSupabaseNow,
@@ -26,6 +27,8 @@ import {
   hydrateDatabaseFromSupabase,
   isSupabaseConfigured,
   loadDatabase,
+  normalizeSupabaseKey,
+  normalizeSupabaseUrl,
   pollSupabaseForRemoteUpdates,
   saveDatabase,
   syncAlertForDrug,
@@ -830,23 +833,65 @@ async function startServer() {
   app.post('/api/cloud-sync/test', requireAuth, requireOwner, async (req: AuthedRequest, res) => {
     const { url, key } = req.body ?? {};
     if (!url || !key) {
-      return res.status(400).json({ error: 'URL and Key are required.' });
+      return res.status(400).json({ error: 'Supabase URL and Secret / Service Role Key are required.' });
     }
-    const cleanUrl = String(url).trim().replace(/\/+$/, '');
-    const cleanKey = String(key).trim();
+    const cleanUrl = normalizeSupabaseUrl(String(url));
+    const cleanKey = normalizeSupabaseKey(String(key));
+    if (!cleanUrl.startsWith('http')) {
+      return res.status(400).json({ error: 'Please enter a valid Supabase Project URL (e.g. https://abcdefgh.supabase.co).' });
+    }
+    if (cleanKey.startsWith('sb_publishable_')) {
+      return res.status(400).json({
+        error: 'You pasted a Publishable key (sb_publishable_...). Please paste your Secret key (sb_secret_...) or Legacy service_role key (eyJ...) from Supabase → Project Settings → API Keys.',
+      });
+    }
+    if (cleanKey.startsWith('sbp_')) {
+      return res.status(400).json({
+        error: 'You pasted a Supabase Account Personal Access Token (sbp_...). Open your project → Project Settings → API Keys and copy the Secret key (sb_secret_...) or Legacy service_role key (eyJ...).',
+      });
+    }
+    if (cleanKey.startsWith('eyJ')) {
+      try {
+        const parts = cleanKey.split('.');
+        if (parts.length !== 3) {
+          return res.status(400).json({
+            error: 'The API key looks incomplete (JWT must have 3 dot-separated parts). Re-copy the full key from Supabase → Project Settings → API Keys.',
+          });
+        }
+        const payloadJson = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
+          ref?: string;
+          role?: string;
+        };
+        const urlHostMatch = cleanUrl.match(/^https?:\/\/([a-z0-9-]+)\.supabase\.co$/i);
+        if (urlHostMatch && payloadJson.ref && urlHostMatch[1].toLowerCase() !== payloadJson.ref.toLowerCase()) {
+          return res.status(400).json({
+            error: `Project mismatch: URL belongs to '${urlHostMatch[1]}', but this API key belongs to project '${payloadJson.ref}'. Make sure both URL and Key come from the same Supabase project.`,
+          });
+        }
+        if (payloadJson.role === 'anon') {
+          return res.status(400).json({
+            error: "You pasted the public 'anon' key. Please paste the 'service_role' secret key instead (Project Settings → API Keys → Legacy anon, service_role API keys).",
+          });
+        }
+      } catch {
+        // Let Supabase validate if custom format
+      }
+    } else if (!cleanKey.startsWith('sb_secret_')) {
+      return res.status(400).json({
+        error: 'Invalid API key format. Copy the Secret key (starts with sb_secret_...) or Legacy service_role key (starts with eyJ...) from Supabase → Project Settings → API Keys—not your database password.',
+      });
+    }
+
     try {
       // 1. Test read table
       const testRes = await fetch(`${cleanUrl}/rest/v1/yoya_kv_state?select=id&limit=1`, {
-        headers: {
-          apikey: cleanKey,
-          Authorization: `Bearer ${cleanKey}`,
-        },
+        headers: buildSupabaseHeaders(cleanKey),
         signal: AbortSignal.timeout(10000),
       });
       if (!testRes.ok) {
         const text = await testRes.text();
         return res.status(400).json({
-          error: `Supabase table access failed (HTTP ${testRes.status}): ${text}. Check table name 'yoya_kv_state' and RLS settings.`,
+          error: `Supabase table access failed (HTTP ${testRes.status}): ${text}. Make sure you copied the Secret key (sb_secret_...) or Legacy service_role key (eyJ...) from this same project, and created the 'yoya_kv_state' table.`,
         });
       }
 
@@ -855,12 +900,10 @@ async function startServer() {
       const writtenAt = new Date().toISOString();
       const writeRes = await fetch(`${cleanUrl}/rest/v1/yoya_kv_state?on_conflict=id`, {
         method: 'POST',
-        headers: {
-          apikey: cleanKey,
-          Authorization: `Bearer ${cleanKey}`,
+        headers: buildSupabaseHeaders(cleanKey, {
           'Content-Type': 'application/json',
           Prefer: 'resolution=merge-duplicates,return=representation',
-        },
+        }),
         body: JSON.stringify({
           id: 'primary_pharmacy_state',
           payload: db,
@@ -946,7 +989,7 @@ async function startServer() {
       if (typeof body.supabaseUrl !== 'string') {
         return res.status(400).json({ error: 'Supabase URL must be a string.' });
       }
-      const trimmedSupUrl = body.supabaseUrl.trim();
+      const trimmedSupUrl = normalizeSupabaseUrl(body.supabaseUrl);
       if (!trimmedSupUrl) {
         db.settings.supabaseUrl = '';
       } else {
@@ -961,7 +1004,7 @@ async function startServer() {
       if (typeof body.supabaseServiceRoleKey !== 'string') {
         return res.status(400).json({ error: 'Supabase Service Role Key must be a string.' });
       }
-      db.settings.supabaseServiceRoleKey = body.supabaseServiceRoleKey.trim();
+      db.settings.supabaseServiceRoleKey = normalizeSupabaseKey(body.supabaseServiceRoleKey);
     }
 
     appendAuditLog(db, {
@@ -1635,13 +1678,12 @@ async function startServer() {
       return res.status(400).json({ error: 'Attendance type must be clock_in or clock_out.' });
     }
 
-    const isQr = source === 'qr_scan' || Boolean(qrToken);
-    if (isQr) {
-      const expected =
-        type === 'clock_in' ? db.attendanceQr.clockInToken : db.attendanceQr.clockOutToken;
-      if (typeof qrToken !== 'string' || !verifyConstantTimeSecret(qrToken, expected)) {
-        return res.status(403).json({ error: 'Invalid or expired pharmacy attendance QR code.' });
-      }
+    const expected =
+      type === 'clock_in' ? db.attendanceQr.clockInToken : db.attendanceQr.clockOutToken;
+    if (typeof qrToken !== 'string' || !qrToken.trim() || !verifyConstantTimeSecret(qrToken.trim(), expected)) {
+      return res.status(403).json({
+        error: 'QR scan required. Please scan the official pharmacy Clock-In or Clock-Out QR poster.',
+      });
     }
 
     const punchTime =
@@ -1688,7 +1730,7 @@ async function startServer() {
       workerRole: user.role,
       type,
       timestamp: punchTime.toISOString(),
-      source: isQr ? ('qr_scan' as const) : ('portal' as const),
+      source: 'qr_scan' as const,
       scheduledTime,
       attendanceStatus,
       lateMinutes: lateMinutes > 0 ? lateMinutes : undefined,

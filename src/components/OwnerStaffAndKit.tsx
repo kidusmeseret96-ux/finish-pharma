@@ -1200,13 +1200,13 @@ export function OwnerSettingsKit({
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-[#5B6470] dark:text-[#98A2AE] mb-1">
-                    Supabase Service Role Key (Secret)
+                    Supabase Secret Key (<span className="font-mono">sb_secret_...</span> or Legacy <span className="font-mono">service_role eyJ...</span>)
                   </label>
                   <input
                     type="password"
                     value={supabaseServiceRoleKey}
                     onChange={(e) => setSupabaseServiceRoleKey(e.target.value)}
-                    placeholder="eyJh..."
+                    placeholder="sb_secret_... or eyJh..."
                     className="w-full px-3.5 py-2 rounded-xl bg-white dark:bg-[#13161B] border border-black/[0.06] dark:border-white/[0.08] text-xs font-mono"
                   />
                 </div>

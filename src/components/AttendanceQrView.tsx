@@ -343,7 +343,6 @@ export function WorkerSalaryAndAttendanceView({
   myPayments,
   settings,
   language,
-  onPunch,
   onPunchQr,
 }: {
   user: AuthUser;
@@ -356,7 +355,6 @@ export function WorkerSalaryAndAttendanceView({
   myPayments: PayrollPayment[];
   settings: ClinicSettings;
   language: Language;
-  onPunch: (type: 'clock_in' | 'clock_out') => Promise<void>;
   onPunchQr: (type: 'clock_in' | 'clock_out', qrToken: string) => Promise<void>;
 }) {
   const t = getTranslator(language);
@@ -412,42 +410,18 @@ export function WorkerSalaryAndAttendanceView({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => {
               soundEngine.playTap();
               setScannerOpen(true);
             }}
-            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-2xl yoya-btn-primary text-white text-xs font-semibold"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-5 py-2.5 min-h-[44px] rounded-2xl yoya-btn-primary text-white text-xs font-semibold"
           >
             <QrCode className="w-4 h-4" />
             {t('scanQrCode')}
           </button>
-          <div className="grid grid-cols-2 sm:flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playAddToCart();
-                void onPunch('clock_in');
-              }}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-2xl bg-[#0D6E52] dark:bg-[#22C58B] text-white dark:text-[#081310] text-xs font-semibold"
-            >
-              <LogIn className="w-4 h-4" />
-              {t('clockIn')}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                soundEngine.playTap();
-                void onPunch('clock_out');
-              }}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 min-h-[44px] rounded-2xl apple-inset text-xs font-semibold"
-            >
-              <LogOut className="w-4 h-4" />
-              {t('clockOut')}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -650,7 +624,7 @@ export function WorkerSalaryAndAttendanceView({
             ))}
             {attendance.length === 0 && (
               <p className="py-8 text-center text-xs text-[#5B6470] dark:text-[#98A2AE]">
-                Scan the pharmacy Clock-In QR code or tap Clock In above when starting your shift.
+                Tap Scan QR Code above and point your camera at the pharmacy Clock-In or Clock-Out QR poster.
               </p>
             )}
           </div>

@@ -384,15 +384,50 @@ function hasMeaningfulPharmacyData(db: Partial<PharmacyDatabase> | null | undefi
   );
 }
 
+export function normalizeSupabaseUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim().replace(/^["']|["']$/g, '');
+  if (!trimmed) return '';
+  try {
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(withScheme);
+    return parsed.origin;
+  } catch {
+    return trimmed.replace(/\/+$/, '');
+  }
+}
+
+export function normalizeSupabaseKey(rawKey: string): string {
+  return rawKey
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .replace(/\s+/g, '');
+}
+
+export function buildSupabaseHeaders(
+  rawKey: string,
+  extra: Record<string, string> = {}
+): Record<string, string> {
+  const cleanKey = normalizeSupabaseKey(rawKey);
+  const headers: Record<string, string> = {
+    apikey: cleanKey,
+    ...extra,
+  };
+  if (cleanKey.startsWith('eyJ')) {
+    headers.Authorization = `Bearer ${cleanKey}`;
+  }
+  return headers;
+}
+
 function getSupabaseConfig(): { url: string; key: string } | null {
-  const envUrl = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '');
-  const envKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const envUrl = process.env.SUPABASE_URL ? normalizeSupabaseUrl(process.env.SUPABASE_URL) : '';
+  const envKey = process.env.SUPABASE_SERVICE_ROLE_KEY ? normalizeSupabaseKey(process.env.SUPABASE_SERVICE_ROLE_KEY) : '';
   if (envUrl && envKey) {
     return { url: envUrl, key: envKey };
   }
   const db = cachedDb ?? loadDatabase();
-  const dbUrl = db.settings.supabaseUrl?.trim().replace(/\/+$/, '');
-  const dbKey = db.settings.supabaseServiceRoleKey?.trim();
+  const dbUrl = db.settings.supabaseUrl ? normalizeSupabaseUrl(db.settings.supabaseUrl) : '';
+  const dbKey = db.settings.supabaseServiceRoleKey ? normalizeSupabaseKey(db.settings.supabaseServiceRoleKey) : '';
 
   const url = envUrl || dbUrl;
   const key = envKey || dbKey;
@@ -412,10 +447,7 @@ export async function hydrateDatabaseFromSupabase(): Promise<void> {
     const res = await fetch(
       `${cfg.url}/rest/v1/yoya_kv_state?id=eq.primary_pharmacy_state&select=payload,updated_at`,
       {
-        headers: {
-          apikey: cfg.key,
-          Authorization: `Bearer ${cfg.key}`,
-        },
+        headers: buildSupabaseHeaders(cfg.key),
         signal: AbortSignal.timeout(15000),
       }
     );
@@ -477,10 +509,7 @@ export async function pollSupabaseForRemoteUpdates(force = false): Promise<boole
       const checkRes = await fetch(
         `${cfg.url}/rest/v1/yoya_kv_state?id=eq.primary_pharmacy_state&select=updated_at`,
         {
-          headers: {
-            apikey: cfg.key,
-            Authorization: `Bearer ${cfg.key}`,
-          },
+          headers: buildSupabaseHeaders(cfg.key),
           signal: AbortSignal.timeout(8000),
         }
       );
@@ -501,10 +530,7 @@ export async function pollSupabaseForRemoteUpdates(force = false): Promise<boole
       const fullRes = await fetch(
         `${cfg.url}/rest/v1/yoya_kv_state?id=eq.primary_pharmacy_state&select=payload,updated_at`,
         {
-          headers: {
-            apikey: cfg.key,
-            Authorization: `Bearer ${cfg.key}`,
-          },
+          headers: buildSupabaseHeaders(cfg.key),
           signal: AbortSignal.timeout(15000),
         }
       );
@@ -539,10 +565,10 @@ export async function pollSupabaseForRemoteUpdates(force = false): Promise<boole
 }
 
 export async function forceSyncToSupabaseNow(db: PharmacyDatabase): Promise<{ success: boolean; error?: string }> {
-  const envUrl = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '');
-  const envKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const dbUrl = db.settings.supabaseUrl?.trim().replace(/\/+$/, '');
-  const dbKey = db.settings.supabaseServiceRoleKey?.trim();
+  const envUrl = process.env.SUPABASE_URL ? normalizeSupabaseUrl(process.env.SUPABASE_URL) : '';
+  const envKey = process.env.SUPABASE_SERVICE_ROLE_KEY ? normalizeSupabaseKey(process.env.SUPABASE_SERVICE_ROLE_KEY) : '';
+  const dbUrl = db.settings.supabaseUrl ? normalizeSupabaseUrl(db.settings.supabaseUrl) : '';
+  const dbKey = db.settings.supabaseServiceRoleKey ? normalizeSupabaseKey(db.settings.supabaseServiceRoleKey) : '';
   const url = envUrl || dbUrl;
   const key = envKey || dbKey;
   if (!url || !key) return { success: false, error: 'Supabase URL or Service Role Key is missing.' };
@@ -552,12 +578,10 @@ export async function forceSyncToSupabaseNow(db: PharmacyDatabase): Promise<{ su
     const writtenAt = new Date().toISOString();
     const res = await fetch(`${url}/rest/v1/yoya_kv_state?on_conflict=id`, {
       method: 'POST',
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
+      headers: buildSupabaseHeaders(key, {
         'Content-Type': 'application/json',
         Prefer: 'resolution=merge-duplicates,return=representation',
-      },
+      }),
       body: JSON.stringify({
         id: 'primary_pharmacy_state',
         payload: db,
@@ -586,10 +610,10 @@ export async function forceSyncToSupabaseNow(db: PharmacyDatabase): Promise<{ su
 }
 
 async function syncDatabaseToSupabase(db: PharmacyDatabase): Promise<void> {
-  const envUrl = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '');
-  const envKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const dbUrl = db.settings.supabaseUrl?.trim().replace(/\/+$/, '');
-  const dbKey = db.settings.supabaseServiceRoleKey?.trim();
+  const envUrl = process.env.SUPABASE_URL ? normalizeSupabaseUrl(process.env.SUPABASE_URL) : '';
+  const envKey = process.env.SUPABASE_SERVICE_ROLE_KEY ? normalizeSupabaseKey(process.env.SUPABASE_SERVICE_ROLE_KEY) : '';
+  const dbUrl = db.settings.supabaseUrl ? normalizeSupabaseUrl(db.settings.supabaseUrl) : '';
+  const dbKey = db.settings.supabaseServiceRoleKey ? normalizeSupabaseKey(db.settings.supabaseServiceRoleKey) : '';
   const url = envUrl || dbUrl;
   const key = envKey || dbKey;
   if (!url || !key) return;
@@ -599,12 +623,10 @@ async function syncDatabaseToSupabase(db: PharmacyDatabase): Promise<void> {
     const writtenAt = new Date().toISOString();
     const res = await fetch(`${url}/rest/v1/yoya_kv_state?on_conflict=id`, {
       method: 'POST',
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
+      headers: buildSupabaseHeaders(key, {
         'Content-Type': 'application/json',
         Prefer: 'resolution=merge-duplicates,return=representation',
-      },
+      }),
       body: JSON.stringify({
         id: 'primary_pharmacy_state',
         payload: db,

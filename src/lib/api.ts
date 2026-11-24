@@ -215,8 +215,8 @@ export const api = {
     }>('/api/attendance/my-summary'),
   punchAttendance: (payload: {
     type: 'clock_in' | 'clock_out';
-    qrToken?: string;
-    source?: 'qr_scan' | 'portal';
+    qrToken: string;
+    source?: 'qr_scan';
     clientSyncId?: string;
     offlineCreatedAt?: string;
   }) =>
