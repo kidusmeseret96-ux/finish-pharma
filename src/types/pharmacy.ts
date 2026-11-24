@@ -402,6 +402,8 @@ export interface ClinicSettings {
   calendarMode: CalendarMode;
   dateOffsetDays: number;
   publicPortalUrl?: string;
+  supabaseUrl?: string;
+  supabaseServiceRoleKey?: string;
 }
 
 export interface OverviewAnalytics {

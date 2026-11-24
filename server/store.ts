@@ -228,6 +228,8 @@ function createInitialDatabase(): PharmacyDatabase {
       calendarMode: 'both',
       dateOffsetDays: 0,
       publicPortalUrl: '',
+      supabaseUrl: '',
+      supabaseServiceRoleKey: '',
     },
     drugKinds: [...DEFAULT_DRUG_KINDS],
     drugs: [],
@@ -288,6 +290,14 @@ function migrateDatabaseIfNeeded(raw: Partial<PharmacyDatabase>): PharmacyDataba
       publicPortalUrl:
         typeof raw.settings?.publicPortalUrl === 'string'
           ? raw.settings.publicPortalUrl.trim().replace(/\/+$/, '')
+          : '',
+      supabaseUrl:
+        typeof raw.settings?.supabaseUrl === 'string'
+          ? raw.settings.supabaseUrl.trim().replace(/\/+$/, '')
+          : '',
+      supabaseServiceRoleKey:
+        typeof raw.settings?.supabaseServiceRoleKey === 'string'
+          ? raw.settings.supabaseServiceRoleKey.trim()
           : '',
     },
     drugKinds:
@@ -362,8 +372,13 @@ let lastSupabaseUpdatedAt: string | null = null;
 let activeSupabaseWrites = 0;
 
 function getSupabaseConfig(): { url: string; key: string } | null {
-  const url = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '');
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const envUrl = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '');
+  const envKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const dbUrl = cachedDb?.settings.supabaseUrl?.trim().replace(/\/+$/, '');
+  const dbKey = cachedDb?.settings.supabaseServiceRoleKey?.trim();
+
+  const url = envUrl || dbUrl;
+  const key = envKey || dbKey;
   if (!url || !key) return null;
   return { url, key };
 }

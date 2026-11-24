@@ -12,6 +12,7 @@ import {
   Globe,
   IdCard,
   KeyRound,
+  Lock,
   Phone,
   Plus,
   RotateCcw,
@@ -786,6 +787,11 @@ export function OwnerSettingsKit({
   const [calendarMode, setCalendarMode] = useState<CalendarMode>(settings.calendarMode || 'both');
   const [dateOffsetDays, setDateOffsetDays] = useState<number>(settings.dateOffsetDays || 0);
   const [publicPortalUrl, setPublicPortalUrl] = useState(settings.publicPortalUrl || '');
+  const [supabaseUrl, setSupabaseUrl] = useState(settings.supabaseUrl || '');
+  const [supabaseServiceRoleKey, setSupabaseServiceRoleKey] = useState(settings.supabaseServiceRoleKey || '');
+  const [supabaseUnlocked, setSupabaseUnlocked] = useState(false);
+  const [unlockInput, setUnlockInput] = useState('');
+  const [unlockError, setUnlockError] = useState<string | null>(null);
   const [savedBanner, setSavedBanner] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
@@ -808,6 +814,8 @@ export function OwnerSettingsKit({
     setCalendarMode(settings.calendarMode || 'both');
     setDateOffsetDays(settings.dateOffsetDays || 0);
     setPublicPortalUrl(settings.publicPortalUrl || '');
+    setSupabaseUrl(settings.supabaseUrl || '');
+    setSupabaseServiceRoleKey(settings.supabaseServiceRoleKey || '');
   }, [settings]);
 
   useEffect(() => {
@@ -863,6 +871,8 @@ export function OwnerSettingsKit({
         calendarMode,
         dateOffsetDays,
         publicPortalUrl: publicPortalUrl.trim(),
+        supabaseUrl: supabaseUrl.trim(),
+        supabaseServiceRoleKey: supabaseServiceRoleKey.trim(),
       });
       soundEngine.playSaleComplete();
       setSavedBanner(true);
@@ -1115,6 +1125,91 @@ export function OwnerSettingsKit({
             <p className="text-[11px] text-[#5B6470] dark:text-[#98A2AE] mt-1">
               Auto-filled from your live web deployment. Inside the Windows desktop app, Copy Staff Portal Link and Attendance QR posters automatically encode this address.
             </p>
+          </div>
+
+          <div className="p-4 rounded-2xl apple-inset space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-display text-xs font-bold text-[#0D6E52] dark:text-[#22C58B] flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-[#0D6E52] dark:text-[#22C58B]" />
+                Supabase Live Cloud Sync (.exe ⟷ Render) {supabaseUnlocked ? '— Unlocked' : '— Locked'}
+              </h4>
+              {supabaseUnlocked && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSupabaseUnlocked(false);
+                    setUnlockInput('');
+                    soundEngine.playTap();
+                  }}
+                  className="text-[11px] font-semibold text-red-600 dark:text-red-400 hover:underline"
+                >
+                  Lock Again
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-[#5B6470] dark:text-[#98A2AE]">
+              Paste your Supabase credentials here so this Windows desktop app syncs live inventory, sales, and accounts with your online Render portal.
+            </p>
+            {!supabaseUnlocked ? (
+              <div className="space-y-2 pt-1">
+                <p className="text-[11px] font-semibold text-[#0D6E52] dark:text-[#22C58B]">
+                  Enter password 'meseret' to unlock Supabase configuration:
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    value={unlockInput}
+                    onChange={(e) => setUnlockInput(e.target.value)}
+                    placeholder="Enter password..."
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#13161B] border border-black/[0.06] dark:border-white/[0.08] text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (unlockInput.trim() === 'meseret') {
+                        setSupabaseUnlocked(true);
+                        setUnlockError(null);
+                        soundEngine.playSaleComplete();
+                      } else {
+                        setUnlockError('Incorrect password. (Hint: meseret)');
+                        soundEngine.playWarning();
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-[#0D6E52] dark:bg-[#22C58B] text-white dark:text-[#081310] text-xs font-semibold shrink-0"
+                  >
+                    Unlock
+                  </button>
+                </div>
+                {unlockError && <p className="text-[11px] text-red-600 dark:text-red-400">{unlockError}</p>}
+              </div>
+            ) : (
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-medium text-[#5B6470] dark:text-[#98A2AE] mb-1">
+                    Supabase Project URL
+                  </label>
+                  <input
+                    type="text"
+                    value={supabaseUrl}
+                    onChange={(e) => setSupabaseUrl(e.target.value)}
+                    placeholder="https://xyzproject.supabase.co"
+                    className="w-full px-3.5 py-2 rounded-xl bg-white dark:bg-[#13161B] border border-black/[0.06] dark:border-white/[0.08] text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-[#5B6470] dark:text-[#98A2AE] mb-1">
+                    Supabase Service Role Key (Secret)
+                  </label>
+                  <input
+                    type="password"
+                    value={supabaseServiceRoleKey}
+                    onChange={(e) => setSupabaseServiceRoleKey(e.target.value)}
+                    placeholder="eyJh..."
+                    className="w-full px-3.5 py-2 rounded-xl bg-white dark:bg-[#13161B] border border-black/[0.06] dark:border-white/[0.08] text-xs font-mono"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

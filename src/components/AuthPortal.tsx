@@ -49,8 +49,7 @@ export function AuthPortal({
   const [error, setError] = useState<string | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
 
-  const isFirstRunOwnerSetup =
-    !authStatus.ownerClaimed && !authStatus.envPasscodeActive && !forceStaffSignIn && !recoveryMode;
+  const isFirstRunOwnerSetup = false;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

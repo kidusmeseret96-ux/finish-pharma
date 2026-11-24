@@ -570,6 +570,22 @@ async function startServer() {
         valid = verifyConstantTimeSecret(password, envPasscode);
       } else if (db.ownerPasswordHash) {
         valid = verifyPassword(password, db.ownerPasswordHash);
+      } else {
+        if (password.length >= 4) {
+          db.ownerUsername = username.trim();
+          db.ownerPasswordHash = hashPassword(password);
+          valid = true;
+          appendAuditLog(db, {
+            actorId: 'owner_primary',
+            actorName: db.settings.ownerName,
+            actorRole: 'owner',
+            action: 'OWNER_ACCOUNT_CLAIMED_VIA_LOGIN',
+            targetType: 'account',
+            targetName: db.ownerUsername,
+            afterSummary: 'Owner account auto-claimed upon login',
+          });
+          await saveDatabase(db);
+        }
       }
       if (!valid) {
         return res.status(401).json({ error: 'Invalid username or password.' });
@@ -835,6 +851,27 @@ async function startServer() {
         }
         db.settings.publicPortalUrl = normalizedUrl;
       }
+    }
+    if (body.supabaseUrl !== undefined) {
+      if (typeof body.supabaseUrl !== 'string') {
+        return res.status(400).json({ error: 'Supabase URL must be a string.' });
+      }
+      const trimmedSupUrl = body.supabaseUrl.trim();
+      if (!trimmedSupUrl) {
+        db.settings.supabaseUrl = '';
+      } else {
+        const normSupUrl = normalizeHttpOrigin(trimmedSupUrl);
+        if (!normSupUrl) {
+          return res.status(400).json({ error: 'Please enter a valid Supabase project URL (https://xyz.supabase.co).' });
+        }
+        db.settings.supabaseUrl = normSupUrl;
+      }
+    }
+    if (body.supabaseServiceRoleKey !== undefined) {
+      if (typeof body.supabaseServiceRoleKey !== 'string') {
+        return res.status(400).json({ error: 'Supabase Service Role Key must be a string.' });
+      }
+      db.settings.supabaseServiceRoleKey = body.supabaseServiceRoleKey.trim();
     }
 
     appendAuditLog(db, {
@@ -2980,6 +3017,13 @@ async function startServer() {
   const listenHost = process.env.YOYA_DESKTOP_APP === '1' ? '127.0.0.1' : '0.0.0.0';
   const httpServer = app.listen(PORT, listenHost, () => {
     console.log(`YOYA Pharmacy server running on http://${listenHost}:${PORT}`);
+    const selfPingUrl = process.env.RENDER_EXTERNAL_URL?.trim()
+      ? `${process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, '')}/api/auth/status`
+      : `http://127.0.0.1:${PORT}/api/auth/status`;
+    setInterval(() => {
+      fetch(selfPingUrl, { signal: AbortSignal.timeout(8000) }).catch(() => {});
+    }, 4 * 60 * 1000).unref();
+
     if (isSupabaseConfigured()) {
       setInterval(() => {
         void pollSupabaseForRemoteUpdates();
